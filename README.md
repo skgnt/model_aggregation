@@ -1,0 +1,2 @@
+# model_aggregation
+様々なモデルを一気に学習して解析します
