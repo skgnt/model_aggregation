@@ -16,39 +16,29 @@ import parameter_record as pr
 import openpyxl as px
 from torch.utils.tensorboard import SummaryWriter
 
-
-
-
-
-
-
-
-
-
-
-#データをコピーして、validationとtrainのデータを分ける関数
-def data_vt(path,result_folder="/data",split=0.8):
-    #path内のフォルダを取得
-    for folder in os.listdir(path):
-            data_path=os.path.join(path,folder)+"/*"
-            #フォルダ内のファイルを取得
-            files=glob.glob(data_path)
-            train_num=int(len(files)*split)
-            #ファイルをシャッフル
-            random.shuffle(files)
-            #フォルダのパスを作成
-            train_folder=os.path.normpath(os.path.join(result_folder,"train",folder))
-            val_folder=os.path.normpath(os.path.join(result_folder,"val",folder))
-            #フォルダを作成
-            print(os.path.abspath(train_folder))
-            os.makedirs(train_folder,exist_ok=True)
-            os.makedirs(val_folder,exist_ok=True)
-            #ファイルをコピー
-            for i in range(len(files)):
-                if i<train_num:
-                    shutil.copy(files[i],train_folder)
-                else:
-                    shutil.copy(files[i],val_folder)
+# #データをコピーして、validationとtrainのデータを分ける関数
+# def data_vt(path,result_folder="/data",split=0.8):
+#     #path内のフォルダを取得
+#     for folder in os.listdir(path):
+#             data_path=os.path.join(path,folder)+"/*"
+#             #フォルダ内のファイルを取得
+#             files=glob.glob(data_path)
+#             train_num=int(len(files)*split)
+#             #ファイルをシャッフル
+#             random.shuffle(files)
+#             #フォルダのパスを作成
+#             train_folder=os.path.normpath(os.path.join(result_folder,"train",folder))
+#             val_folder=os.path.normpath(os.path.join(result_folder,"val",folder))
+#             #フォルダを作成
+#             print(os.path.abspath(train_folder))
+#             os.makedirs(train_folder,exist_ok=True)
+#             os.makedirs(val_folder,exist_ok=True)
+#             #ファイルをコピー
+#             for i in range(len(files)):
+#                 if i<train_num:
+#                     shutil.copy(files[i],train_folder)
+#                 else:
+#                     shutil.copy(files[i],val_folder)
 
 #データをコピーして、validationとtrainとtestのデータを分ける関数
 def data_vtt(path,result_folder="/data",tt_split=0.8,vtr_split=0.8):
@@ -83,7 +73,7 @@ def data_vtt(path,result_folder="/data",tt_split=0.8,vtr_split=0.8):
 
 #モデルのトレーニングを行う関数
 def train_model(model, dataloaders, loss_func, optimizer, dataset_sizes,device,run_name,
-                num_epochs=25,scheduler=None,freeze=None,vt=["train","val"],save_wip_model=None,weight_only=True):
+                num_epochs=25,scheduler=None,freeze=None,vt=["train","val"],save_wip_model=None,weight_only=True,log_folder="log"):
     since = time.time()
 
     best_model_wts = copy.deepcopy(model.state_dict())
@@ -109,7 +99,7 @@ def train_model(model, dataloaders, loss_func, optimizer, dataset_sizes,device,r
                 for param in model.parameters():
                     param.requires_grad = True
                     
-                with open(f"log/{run_name}/{run_name}_status.txt","a") as f:
+                with open(f"{log_folder}/{run_name}/{run_name}_status.txt","a") as f:
                     print(f"[Epoch {epoch}/{num_epochs-1}]全ての重みを固定解除しました。")
                     print(f"[Epoch {epoch}/{num_epochs-1}]All weights have been unpinned.",file=f)
                 freeze = None
@@ -164,14 +154,14 @@ def train_model(model, dataloaders, loss_func, optimizer, dataset_sizes,device,r
             epoch_loss = sum_loss / dataset_sizes[switch]
             epoch_acc = float(sum_correct) / dataset_sizes[switch]
 
-            with open(f"log/{run_name}/{run_name}_status.txt","a") as f:
+            with open(f"{log_folder}/{run_name}/{run_name}_status.txt","a") as f:
                 print(f'--{switch} Loss: {epoch_loss:.5f} Acc: {epoch_acc:.5f}')
                 print(f"[Epoch {epoch}/{num_epochs-1}][{switch}] Loss: {epoch_loss:.5f} Acc: {epoch_acc:.5f}",file=f)
             
             if save_wip_model != None:
                 if epoch%save_wip_model == 0:
-                    os.makedirs(f"log/{run_name}/models", exist_ok=True)
-                    torch.save(model.state_dict(), f"log/{run_name}/models/{epoch}.pth")
+                    os.makedirs(f"{log_folder}/{run_name}/models", exist_ok=True)
+                    torch.save(model.state_dict(), f"{log_folder}/{run_name}/models/{epoch}.pth")
 
             # モデルをディープ・コピーします
             if switch == 'val' and epoch_acc >= best_acc:
@@ -184,25 +174,24 @@ def train_model(model, dataloaders, loss_func, optimizer, dataset_sizes,device,r
         time_elapsed // 60, time_elapsed % 60))
     print('Best val Acc: {:4f}'.format(best_acc))
 
-    with open(f"log/{run_name}/{run_name}_status.txt","a") as f:
+    with open(f"{log_folder}/{run_name}/{run_name}_status.txt","a") as f:
         print('Training complete in {:.0f}m {:.0f}s'.format(
             time_elapsed // 60, time_elapsed % 60),file=f)
         print('Best val Acc: {:5f}'.format(best_acc),file=f)
 
     
-    torch.save(model.state_dict(), f"log/{run_name}/last_model_weight.pth")
+    torch.save(model.state_dict(), f"{log_folder}/{run_name}/last_model_weight.pth")
     if not weight_only:
-        torch.save(model, f"log/{run_name}/last_model_all.pth")
-    # ベストモデルの重みをロードします
-    model.load_state_dict(best_model_wts)
+        torch.save(model, f"{log_folder}/{run_name}/last_model_all.pth")
     
-    torch.save(model, f"log/{run_name}/best_model_weight.pth")
-    if not weight_only:
-        torch.save(model.state_dict(), f"log/{run_name}/best_model_all.pth")
+    if len(vt)==2:
+        torch.save(model, f"{log_folder}/{run_name}/best_model_weight.pth")
+        if not weight_only:
+            torch.save(model.state_dict(), f"{log_folder}/{run_name}/best_model_all.pth")
     return model
 
 #モデルの性能評価を行う関数
-def test_model(model,data_path,transform,device,run_name):
+def test_model(model,data_path,transform,device,run_name,log_folder="log"):
     model = model.to(device)
     model.eval()
     correct = 0
@@ -217,10 +206,10 @@ def test_model(model,data_path,transform,device,run_name):
 
     correct = 0
     
-    os.makedirs(f"log/{run_name}",exist_ok=True)
+    os.makedirs(f"{log_folder}/{run_name}",exist_ok=True)
     label_str=",".join(idx_to_class)
     #ヘッダーを書き込む
-    with open(f"log/{run_name}/test.csv",mode="w") as f:
+    with open(f"{log_folder}/{run_name}/test.csv",mode="w") as f:
         print(f"path,correct_label,{label_str}",file=f)
     bar = tqdm.tqdm(data_loader)
     with torch.no_grad():
@@ -237,11 +226,11 @@ def test_model(model,data_path,transform,device,run_name):
             
             outputs=map(str,outputs.tolist())
             res=",".join(outputs)
-            with open(f"log/{run_name}/test.csv",mode="a") as f:
+            with open(f"{log_folder}/{run_name}/test.csv",mode="a") as f:
                 print(f"{path[0]},{idx_to_class[label]},{res}",file=f)
             
     print(f"Test Accuracy: {correct}/{len(data_loader)} ({100. * correct / len(data_loader)}%)")
-    with open(f"log/{run_name}/{run_name}_status.txt","a") as f:
+    with open(f"{log_folder}/{run_name}/{run_name}_status.txt","a") as f:
         print(f"Test Accuracy: {correct}/{len(data_loader)} ({100. * correct / len(data_loader):3f}%)",file=f,end="")
             
 #ImageFolderと同じ機能を持ち、かつ、画像のパスを返すようにしたDataset
@@ -341,7 +330,7 @@ def confusion_matrix_2class(data,cutoff=0.5):
     return df
 
 #結果の解析を行う関数
-def csv_analyze(csv_path,run_name=None,setting_yaml=r"setting\plot_setting.yaml"):
+def csv_analyze(csv_path,run_name=None,setting_yaml=r"setting\plot_setting.yaml",log_folder="log"):
     df=pd.read_csv(csv_path)
     
     #2分類かどうかを判定
@@ -438,8 +427,8 @@ def csv_analyze(csv_path,run_name=None,setting_yaml=r"setting\plot_setting.yaml"
         print(f"Balanced Accuracyの最大値は{max_acc}で、CutOffは{best_cutoff}です。({cutoff_ll}<=CutOff<={cutoff_ul})")
         
         if run_name!=None:
-            os.makedirs(f"log/{run_name}",exist_ok=True)
-            with open(f"log/{run_name}/{run_name}_status.txt","a") as f:
+            os.makedirs(f"{log_folder}/{run_name}",exist_ok=True)
+            with open(f"{log_folder}/{run_name}/{run_name}_status.txt","a") as f:
                 print(f"The maximum value for Balanced Accuracy is {max_acc} and CutOff is {best_cutoff}.({cutoff_ll}<=CutOff<={cutoff_ul})",file=f)
         
         cutoff_cmd=confusion_matrix_2class(df,cutoff=best_cutoff)
