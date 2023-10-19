@@ -14,6 +14,9 @@ from PIL import Image
 from matplotlib import pyplot as plt
 import parameter_record as pr
 import openpyxl as px
+import json
+import sqlite3
+import datetime
 from torch.utils.tensorboard import SummaryWriter
 
 # #データをコピーして、validationとtrainのデータを分ける関数
@@ -172,19 +175,23 @@ def train_model(model, dataloaders, loss_func, optimizer, dataset_sizes,device,r
     time_elapsed = time.time() - since
     print('Training complete in {:.0f}m {:.0f}s'.format(
         time_elapsed // 60, time_elapsed % 60))
-    print('Best val Acc: {:4f}'.format(best_acc))
+    if len(vt)==2:
+        print('Best val Acc: {:5f}'.format(best_acc))
 
     with open(f"{log_folder}/{run_name}/{run_name}_status.txt","a") as f:
         print('Training complete in {:.0f}m {:.0f}s'.format(
             time_elapsed // 60, time_elapsed % 60),file=f)
-        print('Best val Acc: {:5f}'.format(best_acc),file=f)
+        if len(vt)==2:
+            print('Best val Acc: {:5f}'.format(best_acc),file=f)
 
     
     torch.save(model.state_dict(), f"{log_folder}/{run_name}/last_model_weight.pth")
     if not weight_only:
         torch.save(model, f"{log_folder}/{run_name}/last_model_all.pth")
     
+
     if len(vt)==2:
+        model.load_state_dict(best_model_wts)
         torch.save(model, f"{log_folder}/{run_name}/best_model_weight.pth")
         if not weight_only:
             torch.save(model.state_dict(), f"{log_folder}/{run_name}/best_model_all.pth")
@@ -209,7 +216,7 @@ def test_model(model,data_path,transform,device,run_name,log_folder="log"):
     os.makedirs(f"{log_folder}/{run_name}",exist_ok=True)
     label_str=",".join(idx_to_class)
     #ヘッダーを書き込む
-    with open(f"{log_folder}/{run_name}/test.csv",mode="w") as f:
+    with open(f"{log_folder}/{run_name}/{run_name}_test.csv",mode="w") as f:
         print(f"path,correct_label,{label_str}",file=f)
     bar = tqdm.tqdm(data_loader)
     with torch.no_grad():
@@ -226,7 +233,7 @@ def test_model(model,data_path,transform,device,run_name,log_folder="log"):
             
             outputs=map(str,outputs.tolist())
             res=",".join(outputs)
-            with open(f"{log_folder}/{run_name}/test.csv",mode="a") as f:
+            with open(f"{log_folder}/{run_name}/{run_name}_test.csv",mode="a") as f:
                 print(f"{path[0]},{idx_to_class[label]},{res}",file=f)
             
     print(f"Test Accuracy: {correct}/{len(data_loader)} ({100. * correct / len(data_loader)}%)")
@@ -328,10 +335,46 @@ def confusion_matrix_2class(data,cutoff=0.5):
         df.loc[data.iloc[i,1],max_idx]+=1
 
     return df
+#混同行列のDataFrameを受け取り、各種指標を計算する関数
+def confusion_matrix_analyze(data,sesitive_label=None,specificity_label=None):
+    sensitivity=None
+    specificity=None
+    precision=None
+    f1=None
+    accuracy=None
+    blanced_accuracy=None
+
+
+    if sesitive_label!=None:
+        #2分類の場合
+        sensitivity=data.loc[sesitive_label,sesitive_label]/data.loc[sesitive_label,:].sum()
+        specificity=data.loc[specificity_label,specificity_label]/data.loc[specificity_label,:].sum()
+        precision=data.loc[sesitive_label,sesitive_label]/data.loc[:,sesitive_label].sum()
+        f1=2*precision*sensitivity/(precision+sensitivity)
+        blanced_accuracy=(sensitivity+specificity)/2
+    #2分類と3分類以上のaccuracyを求める
+    sum_all=0
+    sum_acc=0
+    for i in range(data.shape[0]):
+        sum_all+=data.iloc[i,:].sum()
+        sum_acc+=data.iloc[i,i]
+    accuracy=sum_acc/sum_all
+
+    analyze_dict={"sensitivity":sensitivity,"specificity":specificity,"precision":precision,"f1":f1,"accuracy":accuracy,"blanced_accuracy":blanced_accuracy}
+    return analyze_dict
+    
+    
+
+        
+
 
 #結果の解析を行う関数
-def csv_analyze(csv_path,run_name=None,setting_yaml=r"setting\plot_setting.yaml",log_folder="log"):
+def csv_analyze(csv_path,run_name=None,setting_yaml=r"setting\plot_setting.yaml",log_folder="log",sensitive_label=None,specificity_label=None):
     df=pd.read_csv(csv_path)
+
+    #log_folderの最下層フォルダを取得
+    group_name=os.path.basename(log_folder)
+    group_name=group_name if group_name!="log" else "single"
     
     #2分類かどうかを判定
     if df.shape[1]<5:
@@ -386,7 +429,7 @@ def csv_analyze(csv_path,run_name=None,setting_yaml=r"setting\plot_setting.yaml"
         ps=pr.ParameterWR()
         ps.load_yaml(setting_yaml)
 
-
+        plt.clf()
         #matplotlibでROC曲線を描画
         plt.plot([i[1] for i in roc_data],[i[2] for i in roc_data])
 
@@ -415,8 +458,8 @@ def csv_analyze(csv_path,run_name=None,setting_yaml=r"setting\plot_setting.yaml"
         # plt.savefig(csv_path.replace(".csv","_acc.png"))
 
         #Balanced Accuracyの最大値のcutoffを取得
-        cutoff_ll=0.4
-        cutoff_ul=0.6
+        cutoff_ll=ps.cutoff_ll
+        cutoff_ul=ps.cutoff_ul
         max_acc=0
         for i in roc_data:
             #cutOffがcutoff_ll以上,cutoff_ul以下の時のみ
@@ -426,20 +469,106 @@ def csv_analyze(csv_path,run_name=None,setting_yaml=r"setting\plot_setting.yaml"
                     best_cutoff=i[0]
         print(f"Balanced Accuracyの最大値は{max_acc}で、CutOffは{best_cutoff}です。({cutoff_ll}<=CutOff<={cutoff_ul})")
         
+
+
         if run_name!=None:
             os.makedirs(f"{log_folder}/{run_name}",exist_ok=True)
             with open(f"{log_folder}/{run_name}/{run_name}_status.txt","a") as f:
                 print(f"The maximum value for Balanced Accuracy is {max_acc} and CutOff is {best_cutoff}.({cutoff_ll}<=CutOff<={cutoff_ul})",file=f)
         
         cutoff_cmd=confusion_matrix_2class(df,cutoff=best_cutoff)
-        confusion_matrix(cutoff_cmd,csv_path.replace(".csv","_best_cutoff_confusion_matrix.xlsx"))
+        
+        matrix_analyze=confusion_matrix_analyze(cutoff_cmd,sesitive_label=sensitive_label,specificity_label=specificity_label)
+        #matrix_analyzeのkeyにcutoffを追加
+        matrix_analyze["cutoff"]=best_cutoff
+        SQLiteController(f"log/analyze_record.db").analyze_write(run_name,matrix_analyze,group=group_name)
+        confusion_matrix(cutoff_cmd,csv_path.replace(".csv","_bc_cm.xlsx"))
+    else:
+        cmd=confusion_matrix_df(df) 
+        matrix_analyze=confusion_matrix_analyze(cmd)       
+        SQLiteController(f"log/analyze_record.db").analyze_write(run_name,matrix_analyze,group=group_name)
+        confusion_matrix(cmd,csv_path.replace(".csv","_cm.xlsx"))
 
-    cmd=confusion_matrix_df(df)
-    confusion_matrix(cmd,csv_path.replace(".csv","_confusion_matrix.xlsx"))
+class SQLiteController:
+    def __init__(self, db_path):
+        """
+        SQLiteControllerクラスのコンストラクターです。
+
+        :param db_path: str, データベースファイルのパス
+        """
+        #db_pathにファイルが存在しない場合は、ファイルを作成する
+        if not os.path.exists(db_path):
+            open(db_path, "w").close()
+        self.conn = sqlite3.connect(db_path)
+        self.cursor = self.conn.cursor()
+
+    def execute_query(self, query, params=None):
+        """
+        クエリを実行するメソッドです。
+
+        :param query: str, 実行するクエリ
+        :param params: tuple, クエリに渡すパラメーター
+        """
+        if params:
+            self.cursor.execute(query, params)
+        else:
+            self.cursor.execute(query)
+        self.conn.commit()
+
+    def fetch_all(self, query, params=None):
+        """
+        クエリを実行し、全ての結果を取得するメソッドです。
+
+        :param query: str, 実行するクエリ
+        :param params: tuple, クエリに渡すパラメーター
+        :return: list, クエリの結果
+        """
+        if params:
+            self.cursor.execute(query, params)
+        else:
+            self.cursor.execute(query)
+        return self.cursor.fetchall()
+
+    def fetch_one(self, query, params=None):
+        """
+        クエリを実行し、1つの結果を取得するメソッドです。
+
+        :param query: str, 実行するクエリ
+        :param params: tuple, クエリに渡すパラメーター
+        :return: tuple, クエリの結果
+        """
+        if params:
+            self.cursor.execute(query, params)
+        else:
+            self.cursor.execute(query)
+        return self.cursor.fetchone()
     
+    def analyze_write(self,run_name,analyze_dict,group="single"):
+        #dbにtest_resultテーブルがなければ作成
+        #ただし、項目はanalize_dictのkeyに加えて、時刻(yyyy-mm-dd hh:mm:ss),run_name,groupを追加する。
+        #また、idは自動で付与されるようにする。
+        self.execute_query("CREATE TABLE IF NOT EXISTS test_result(id INTEGER PRIMARY KEY AUTOINCREMENT,run_name TEXT,group_name TEXT,datetime TEXT,accuracy REAL,sensitivity REAL,specificity REAL,precision REAL,f1 REAL,blanced_accuracy REAL,cutoff REAL)")
+        #yyyy-mm-dd hh:mm:ssの形式で時刻を取得
+        now=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        #dbに書込み
+        #ただし、3分類上はanalyze_dictのaccuracy以外の値がNoneになるので、その場合はNoneは書き込まない
+        if analyze_dict["blanced_accuracy"]==None:
+            self.execute_query("INSERT INTO test_result(run_name,group_name,datetime,accuracy) VALUES(?,?,?,?)",(run_name,group,now,analyze_dict["accuracy"]))
+        else:
+            self.execute_query("INSERT INTO test_result(run_name,group_name,datetime,accuracy,sensitivity,specificity,precision,f1,blanced_accuracy,cutoff) VALUES(?,?,?,?,?,?,?,?,?,?)",(run_name,group,now,analyze_dict["accuracy"],analyze_dict["sensitivity"],analyze_dict["specificity"],analyze_dict["precision"],analyze_dict["f1"],analyze_dict["blanced_accuracy"],analyze_dict["cutoff"]))
+
+
+
+
+    def close_connection(self):
+        """
+        データベース接続を閉じるメソッドです。
+        """
+        self.conn.close()
+
 
 if __name__ == "__main__":
-    csv_analyze(r"log/test/test.csv","byouri_128_vit_l_32_2")
+    csv_analyze(r"log\cifar10\cifar10_efficientnet_b0\cifar10_efficientnet_b0_test.csv",run_name="cifar10_efficientnet_b0",setting_yaml=r"setting\plot_setting.yaml",log_folder=r"log\cifar10")
     #tmpのDataFrameを作成
     # df=pd.DataFrame({"a":[1,2],"b":[4,5]})
     # print(df)
