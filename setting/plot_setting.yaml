@@ -1,0 +1,6 @@
+run_name: plot_setting
+title: ROC
+xlabel: FPF
+ylabel: TPF
+cutoff_ll: 0.4
+cutoff_ul: 0.6
