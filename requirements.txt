@@ -1,0 +1,6 @@
+pyyaml
+tensorboard
+pandas
+matplotlib
+pytorch
+torchvision

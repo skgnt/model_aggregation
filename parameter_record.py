@@ -20,17 +20,35 @@ class ParameterWR:
         super().__setattr__(name, value)
 
     def load_yaml(self, path):
+        """
+        YAMLファイルからパラメータを読み込みます。
+
+        Args:
+            path (str): YAMLファイルのパス。
+
+        Returns:
+            None
+        """
         with open(path, "r") as yaml_file:
             self.params = yaml.safe_load(yaml_file)
         for key, value in self.params.items():
             self.__setattr__(key, value)
 
     def write_yaml(self,record="./record"):
+        """
+        パラメータをYAMLファイルに書き込みます。
+
+        Args:
+            record (str): YAMLファイルを保存するディレクトリのパス。
+
+        Returns:
+            str: 保存されたYAMLファイルのパス。
+        """
         if not hasattr(self, "run_name"):
             raise Exception("Cannot find run_name which is an instance variable.")
         else:
             if not os.path.exists(record):
-                os.makedirs(record)
+                os.makedirs(record, exist_ok=True)
             
             yaml_path = os.path.join(record, f"{self.run_name}.yaml")
 
