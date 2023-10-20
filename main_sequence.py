@@ -96,7 +96,7 @@ def main_sequence(pr_y=None):
         traing_sequence(yaml_path)
         if args.test:
             print("---auto analyze---")
-            csv_analyze(f"{args.log_folder}\{args.run_name}\{args.run_name}_test.csv",run_name=args.run_name,log_folder=args.log_folder,sensitive_label=args.ss_label[0],specificity_label=args.ss_label[1])
+            csv_analyze(f"{args.log_folder}\{args.run_name}\{args.run_name}_test.csv",run_name=args.run_name,sensitive_label=args.ss_label[0],specificity_label=args.ss_label[1])
             print("---auto analyze end---")
     except:
         import traceback
