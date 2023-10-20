@@ -16,6 +16,7 @@ import parameter_record as pr
 import openpyxl as px
 import json
 import sqlite3
+import sklearn.metrics as skm
 import datetime
 from torch.utils.tensorboard import SummaryWriter
 
@@ -369,10 +370,12 @@ def confusion_matrix_analyze(data,sesitive_label=None,specificity_label=None):
 
 
 #結果の解析を行う関数
-def csv_analyze(csv_path,run_name=None,setting_yaml=r"setting\plot_setting.yaml",log_folder="log",sensitive_label=None,specificity_label=None):
+def csv_analyze(csv_path,run_name=None,setting_yaml=r"setting\plot_setting.yaml",sensitive_label=None,specificity_label=None):
     df=pd.read_csv(csv_path)
 
     #log_folderの最下層フォルダを取得
+    log_folder=os.path.dirname(os.path.dirname(csv_path))
+    
     group_name=os.path.basename(log_folder)
     group_name=group_name if group_name!="log" else "single"
     
@@ -390,12 +393,14 @@ def csv_analyze(csv_path,run_name=None,setting_yaml=r"setting\plot_setting.yaml"
 
         di=0.09
         flg=True
+
+        auc=0
         #ROC曲線のデータを作成
         while True:
             # print(df[(df["correct_label"]==header[2]) & (df[header[2]] > (i/100))])
-            tpf=df[(df["correct_label"]==header[2]) & (df[header[3]] > i)].shape[0]/df[df["correct_label"]==header[2]].shape[0]
-            fpf=df[(df["correct_label"]==header[3]) & (df[header[3]] > i)].shape[0]/df[df["correct_label"]==header[3]].shape[0]
-            roc_data.append([i,tpf,fpf,round(((1-tpf)+fpf)/2,5)])
+            tpr=df[(df["correct_label"]==sensitive_label) & (df[sensitive_label] > i)].shape[0]/df[df["correct_label"]==sensitive_label].shape[0]
+            fpr=df[(df["correct_label"]==specificity_label) & (df[sensitive_label] > i)].shape[0]/df[df["correct_label"]==specificity_label].shape[0]
+            roc_data.append([i,tpr,fpr,round(((1-fpr)+tpr)/2,5)])
             if i>=1:
                 break
             if i<0.01:
@@ -420,8 +425,19 @@ def csv_analyze(csv_path,run_name=None,setting_yaml=r"setting\plot_setting.yaml"
                 if round(1-(1/(10**f)),fr)==i:
                     flg=False
         
+        #auc算出
+        #roc_dataをpandasのDataFrameに変換
+        roc_df=pd.DataFrame(roc_data,columns=["CutOff","TPR","FPR","Balanced Accuracy"])
+        #roc_dfをFPFの昇順にソート
+        roc_df=roc_df.sort_values(by="FPR")
+        #cuttoffが
+        for i in range(roc_df.shape[0]-1):
+
+           auc += (roc_df.iloc[i+1]["FPR"] - roc_df.iloc[i]["FPR"]) * roc_df.iloc[i+1]["TPR"]
+        
+        print("auc",skm.auc(roc_df["FPR"],roc_df["TPR"]))
         with open(csv_path.replace(".csv","_roc.csv"),"w") as f:
-            print("CutOff,TPF,FPF,Balanced Accuracy",file=f)
+            print("CutOff,TPR,FPR,Balanced Accuracy",file=f)
             for data in roc_data:
                 print(f"{data[0]},{data[1]},{data[2]},{data[3]}",file=f)
 
@@ -431,7 +447,7 @@ def csv_analyze(csv_path,run_name=None,setting_yaml=r"setting\plot_setting.yaml"
 
         plt.clf()
         #matplotlibでROC曲線を描画
-        plt.plot([i[1] for i in roc_data],[i[2] for i in roc_data])
+        plt.plot([i[2] for i in roc_data],[i[1] for i in roc_data])
 
         #グラフの範囲を指定
         plt.xlim(0,1)
@@ -481,12 +497,15 @@ def csv_analyze(csv_path,run_name=None,setting_yaml=r"setting\plot_setting.yaml"
         matrix_analyze=confusion_matrix_analyze(cutoff_cmd,sesitive_label=sensitive_label,specificity_label=specificity_label)
         #matrix_analyzeのkeyにcutoffを追加
         matrix_analyze["cutoff"]=best_cutoff
-        SQLiteController(f"log/analyze_record.db").analyze_write(run_name,matrix_analyze,group=group_name)
+        #matrix_analyzeのkeyにaucを追加
+
+        matrix_analyze["auc"]=auc
+        SQLiteController(f"log/analyze_record.db").analyze_write(run_name,matrix_analyze,group=group_name,log_folder=log_folder)
         confusion_matrix(cutoff_cmd,csv_path.replace(".csv","_bc_cm.xlsx"))
     else:
         cmd=confusion_matrix_df(df) 
         matrix_analyze=confusion_matrix_analyze(cmd)       
-        SQLiteController(f"log/analyze_record.db").analyze_write(run_name,matrix_analyze,group=group_name)
+        SQLiteController(f"log/analyze_record.db").analyze_write(run_name,matrix_analyze,group=group_name,log_folder=log_folder)
         confusion_matrix(cmd,csv_path.replace(".csv","_cm.xlsx"))
 
 class SQLiteController:
@@ -543,19 +562,32 @@ class SQLiteController:
             self.cursor.execute(query)
         return self.cursor.fetchone()
     
-    def analyze_write(self,run_name,analyze_dict,group="single"):
-        #dbにtest_resultテーブルがなければ作成
-        #ただし、項目はanalize_dictのkeyに加えて、時刻(yyyy-mm-dd hh:mm:ss),run_name,groupを追加する。
-        #また、idは自動で付与されるようにする。
-        self.execute_query("CREATE TABLE IF NOT EXISTS test_result(id INTEGER PRIMARY KEY AUTOINCREMENT,run_name TEXT,group_name TEXT,datetime TEXT,accuracy REAL,sensitivity REAL,specificity REAL,precision REAL,f1 REAL,blanced_accuracy REAL,cutoff REAL)")
-        #yyyy-mm-dd hh:mm:ssの形式で時刻を取得
-        now=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        #dbに書込み
-        #ただし、3分類上はanalyze_dictのaccuracy以外の値がNoneになるので、その場合はNoneは書き込まない
-        if analyze_dict["blanced_accuracy"]==None:
-            self.execute_query("INSERT INTO test_result(run_name,group_name,datetime,accuracy) VALUES(?,?,?,?)",(run_name,group,now,analyze_dict["accuracy"]))
-        else:
-            self.execute_query("INSERT INTO test_result(run_name,group_name,datetime,accuracy,sensitivity,specificity,precision,f1,blanced_accuracy,cutoff) VALUES(?,?,?,?,?,?,?,?,?,?)",(run_name,group,now,analyze_dict["accuracy"],analyze_dict["sensitivity"],analyze_dict["specificity"],analyze_dict["precision"],analyze_dict["f1"],analyze_dict["blanced_accuracy"],analyze_dict["cutoff"]))
+    def analyze_write(self,run_name,analyze_dict,group="single",log_folder="log"):
+            """
+            テスト結果をデータベースに書き込む関数。
+
+            Parameters:
+            run_name (str): テストの実行名。
+            analyze_dict (dict): テスト結果の辞書。accuracy, auc, sensitivity, specificity, precision, f1, balanced_accuracy, cutoffのキーを持つ。
+            group (str): テストのグループ名。デフォルトは"single"。
+            log_folder (str): ログファイルの保存先。デフォルトは"log"。
+
+            Returns:
+            None
+            """
+
+            #dbにtest_resultテーブルがなければ作成
+            #ただし、項目はanalize_dictのkeyに加えて、時刻(yyyy-mm-dd hh:mm:ss),run_name,group,log_folderを追加する。
+            #また、idは自動で付与されるようにする。
+            self.execute_query("CREATE TABLE IF NOT EXISTS test_result(id INTEGER PRIMARY KEY AUTOINCREMENT,run_name TEXT,group_name TEXT,datetime TEXT,accuracy REAL,sensitivity REAL,specificity REAL,precision REAL,f1 REAL,blanced_accuracy REAL,cutoff REAL,auc REAL,log_folder TEXT)")
+            #yyyy-mm-dd hh:mm:ssの形式で時刻を取得log
+            now=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            #dbに書込み
+            #ただし、3分類上はanalyze_dictのaccuracy以外の値がNoneになるので、その場合はNoneは書き込まない
+            if analyze_dict["blanced_accuracy"]==None:
+                self.execute_query("INSERT INTO test_result(run_name,group_name,datetime,accuracy,log_folder) VALUES(?,?,?,?,?)",(run_name,group,now,analyze_dict["accuracy"],log_folder))
+            else:
+                self.execute_query("INSERT INTO test_result(run_name,group_name,datetime,accuracy,sensitivity,specificity,precision,f1,blanced_accuracy,cutoff,auc,log_folder) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",(run_name,group,now,analyze_dict["accuracy"],analyze_dict["sensitivity"],analyze_dict["specificity"],analyze_dict["precision"],analyze_dict["f1"],analyze_dict["blanced_accuracy"],analyze_dict["cutoff"],analyze_dict["auc"],log_folder))
 
 
 
@@ -568,7 +600,7 @@ class SQLiteController:
 
 
 if __name__ == "__main__":
-    csv_analyze(r"log\cifar10\cifar10_efficientnet_b0\cifar10_efficientnet_b0_test.csv",run_name="cifar10_efficientnet_b0",setting_yaml=r"setting\plot_setting.yaml",log_folder=r"log\cifar10")
+    csv_analyze(r"log\cifar10\cifar10_efficientnet_b0\cifar10_efficientnet_b0_test.csv",run_name="cifar10_efficientnet_b0")
     #tmpのDataFrameを作成
     # df=pd.DataFrame({"a":[1,2],"b":[4,5]})
     # print(df)
