@@ -17,7 +17,8 @@
 * Accuracy  
 * Precision  
 * F1-score  
-* Balanced accuracy  
+* Balanced accuracy
+* auc
 * cutoff(制限値内)
 
 解析内容(3分類以上)
