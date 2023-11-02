@@ -7,7 +7,10 @@ import torchvision
 import parameter_record as pr
 import os
 from untils import train_model,test_model
-from available_model import *
+from available_model_pytorch import model_output_plus,available_model_pytorch
+from available_model_timm import FineTuning,available_model_timm
+import timm
+from use_transform import use_transform,chage_transform
 
 
 def traing_sequence(yaml_path=None):
@@ -23,17 +26,7 @@ def traing_sequence(yaml_path=None):
                         nn.CTCLoss()]
     loss_func = loss_func_choices[args.loss_num]
     learning_model=['train', 'val'] if args.validation else ['train']
-    transform = {"train": torchvision.transforms.Compose([
-        torchvision.transforms.Resize((224, 224)),
-        torchvision.transforms.RandomHorizontalFlip(),
-        torchvision.transforms.RandomVerticalFlip(),
-        torchvision.transforms.ToTensor(),
-        torchvision.transforms.Normalize((0.5,), (0.5,))
-    ]), "val": torchvision.transforms.Compose([
-        torchvision.transforms.Resize((224, 224)),
-        torchvision.transforms.ToTensor(),
-        torchvision.transforms.Normalize((0.5,), (0.5,))
-    ])}
+    transform = use_transform
     
 
     # モデル名を全て小文字に変換
@@ -43,88 +36,31 @@ def traing_sequence(yaml_path=None):
     with open(f"{args.log_folder}/{args.run_name}/{args.run_name}_status.txt","a") as f:
         f.write(f"you select model is {model_name}\n")
 
-    flg = False
-    # モデルの種類が存在するか確認
-    for model_kind in model_kind_list:
-        if model_name in model_kind:
-            flg = True
-    if flg == False:
-        raise Exception("Cannot find model name. Please check the model name.")
+    if args.source == "timm":
+        flg = False
+        for model_kind in available_model_timm:
+            if model_name in model_kind:
+                flg = True
+        if flg == False:
+            raise Exception("Cannot find model name. Please check the model name.")
 
-    # 1. モデルの読み込み
-    model = torch.hub.load('pytorch/vision', model_name,
-                        pretrained=args.pretrained)
-    model.device = args.device
+        model = timm.create_model(model_name, pretrained=args.pretrained, num_classes=0,in_chans=args.channel)
+        model = FineTuning(model=model, num_features=model.num_features, num_classes=args.num_classes)
+        transform = chage_transform(transform=transform, model_name=model_name)
+        model.device = args.device
 
-    if model_name in efficientnet:
-        in_features=list(model.children())[-1][1].in_features
-    elif model_name in alexnet:
-        in_features=9216
-    else:
-        try:
-            in_features = list(model.children())[-1][0].in_features
-        except:
-            in_features = list(model.children())[-1].in_features
+    elif args.source == "pytorch":
+        flg = False
+        for model_kind in available_model_pytorch:
+            if model_name in model_kind:
+                flg = True
+        if flg == False:
+            raise Exception("Cannot find model name. Please check the model name.")
 
-    if in_features < 1024:
-        if in_features < 512:
-            one_liner_out = in_features
-        else:
-            one_liner_out = 512
-    else:
-        one_liner_out = 1024
+        model = torch.hub.load('pytorch/vision', model_name, pretrained=args.pretrained)
+        model,transform = model_output_plus(model=model, model_name=model_name, num_classes=args.num_classes, transform=transform)
+        model.device = args.device
 
-    torch.manual_seed(0)
-
-    add_layer = nn.Sequential(
-        nn.Linear(in_features=in_features, out_features=one_liner_out),
-        nn.ReLU(),
-        nn.Dropout(p=0.5),
-        nn.Linear(in_features=one_liner_out, out_features=args.num_classes),
-    )
-
-    
-
-
-    # 3. 最終層の変更(指定されたモデルによって最終層の形式が異なるため)
-    if model_name in vgg:
-        model.classifier = add_layer
-    elif model_name in resnet:
-        model.fc = add_layer
-
-    elif model_name in wide_resnet:
-        model.fc = add_layer
-
-    elif model_name in efficientnet:
-        model.classifier = add_layer
-
-    elif model_name in alexnet:
-        model.classifier = add_layer
-    elif model_name in inception:
-        model.fc=add_layer
-        model.aux_logits = False 
-        transform = {"train": torchvision.transforms.Compose([
-                              torchvision.transforms.Resize((299, 299)),
-                              torchvision.transforms.RandomHorizontalFlip(),
-                              torchvision.transforms.RandomVerticalFlip(),
-                              torchvision.transforms.ToTensor(),
-                              torchvision.transforms.Normalize((0.5,), (0.5,))
-                ]), "val":  torchvision.transforms.Compose([
-                            torchvision.transforms.Resize((299, 299)),
-                            torchvision.transforms.ToTensor(),
-                            torchvision.transforms.Normalize((0.5,), (0.5,))
-                ])}
-    
-
-    elif model_name in googlenet:
-        model.fc = add_layer
-
-    elif model_name in swin:
-        model.head = add_layer
-
-    elif model_name in vit:
-        model.heads = add_layer
-    
     # 2. モデルの最終層以外の重みを固定する
     if args.weight_freeze[0] == True:
         for param in model.parameters():

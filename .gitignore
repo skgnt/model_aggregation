@@ -5,3 +5,6 @@ record/
 result/
 runs/
 data/
+frontend/
+flask_app.py
+model.csv

@@ -55,3 +55,6 @@ class ParameterWR:
             with open(yaml_path, "w") as yaml_file:
                 yaml.dump(self.params, yaml_file)
             return yaml_path
+        
+def change_transform(transform,model_name):
+    return transform

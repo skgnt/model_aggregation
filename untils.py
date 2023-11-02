@@ -229,13 +229,12 @@ def test_model(model,data_path,transform,device,run_name,log_folder="log"):
             outputs=torch.nn.functional.softmax(outputs[0],dim=0)
             
             predicted = torch.argmax(outputs)
-            
             correct+=1 if predicted == label[0] else 0
             
             outputs=map(str,outputs.tolist())
             res=",".join(outputs)
             with open(f"{log_folder}/{run_name}/{run_name}_test.csv",mode="a") as f:
-                print(f"{path[0]},{idx_to_class[label]},{res}",file=f)
+                print(f"{path[0]},{idx_to_class[label[0]]},{res}",file=f)
             
     print(f"Test Accuracy: {correct}/{len(data_loader)} ({100. * correct / len(data_loader)}%)")
     with open(f"{log_folder}/{run_name}/{run_name}_status.txt","a") as f:
@@ -257,7 +256,7 @@ class ImageDatasetWithPath(torch.utils.data.Dataset):
 
             path=os.path.join(self.root,class_name)
             files=glob.glob(path+"/*")
-            dataset_self=[(file,id) for file in files]
+            dataset_self=[(os.path.abspath(file),id) for file in files]
 
             self.dataset.extend(dataset_self)
 
@@ -323,17 +322,14 @@ def confusion_matrix_df(data):
 
 #2分類の混同行列をCutOffを用いて、作成する関数
 def confusion_matrix_2class(data,cutoff=0.5):
-    header=data.columns.values.tolist()[2:]
+    header=data.columns.values.tolist()[-2:]
     df=pd.DataFrame(0,index=header,columns=header)
 
-
+    c_p=data.loc[:,["correct_label","predict_label"]]
     for i in range(data.shape[0]):
         #2列目以降の最大値を取得して、その列のヘッダーを取得
-        if data.iloc[i,3]>cutoff:
-            max_idx=header[1]
-        else:
-            max_idx=header[0]
-        df.loc[data.iloc[i,1],max_idx]+=1
+        df.loc[c_p.iloc[i,0],c_p.iloc[i,1][:-2]]+=1
+
 
     return df
 #混同行列のDataFrameを受け取り、各種指標を計算する関数
@@ -378,11 +374,11 @@ def csv_analyze(csv_path,run_name=None,setting_yaml=r"setting\plot_setting.yaml"
     
     group_name=os.path.basename(log_folder)
     group_name=group_name if group_name!="log" else "single"
+    #log_folderを絶対pathに変換
+    log_folder=os.path.abspath(log_folder)
     
     #2分類かどうかを判定
     if df.shape[1]<5:
-        # headerを取得
-        header=df.columns.values.tolist()
         roc_data=[]
         f=3#~1,99~の小数点以下の桁数
 
@@ -467,12 +463,6 @@ def csv_analyze(csv_path,run_name=None,setting_yaml=r"setting\plot_setting.yaml"
         # plt.xlim(0,1)
         # plt.ylim(0,1)
 
-        # #グラフのタイトルと軸ラベルを指定
-        # plt.title("CutOff and Balanced Accuracy")
-        # plt.ylabel("Balanced Accuracy")
-        # plt.xlabel("CutOff")
-        # plt.savefig(csv_path.replace(".csv","_acc.png"))
-
         #Balanced Accuracyの最大値のcutoffを取得
         cutoff_ll=ps.cutoff_ll
         cutoff_ul=ps.cutoff_ul
@@ -483,12 +473,24 @@ def csv_analyze(csv_path,run_name=None,setting_yaml=r"setting\plot_setting.yaml"
                 if max_acc<i[3]:
                     max_acc=i[3]
                     best_cutoff=i[0]
+                elif max_acc==i[3]:
+                    #50に近い方を選択
+                    if abs(0.5-i[0])<abs(0.5-best_cutoff):
+                        max_acc=i[3]
+                        best_cutoff=i[0]
+
         print(f"Balanced Accuracyの最大値は{max_acc}で、CutOffは{best_cutoff}です。({cutoff_ll}<=CutOff<={cutoff_ul})")
         
-
+        #dfの2列目と3列目の間にpredicted_labelを追加
+        df.insert(2,"predict_label","")
+        #sensitive_label>best_cutoffが正のとき,predicted_labelにsensitive_labelを代入して、そうでないときはspecificity_labelを代入する。
+        df["predict_label"]=df.apply(lambda x: sensitive_label+"_p" if x[sensitive_label]>best_cutoff else specificity_label+"_p",axis=1)
+        
 
         if run_name!=None:
             os.makedirs(f"{log_folder}/{run_name}",exist_ok=True)
+            #dfをcsvに書き込む
+            df.to_csv(f"{log_folder}/{run_name}/{run_name}_test_p.csv",index=False)
             with open(f"{log_folder}/{run_name}/{run_name}_status.txt","a") as f:
                 print(f"The maximum value for Balanced Accuracy is {max_acc} and CutOff is {best_cutoff}.({cutoff_ll}<=CutOff<={cutoff_ul})",file=f)
         
@@ -501,9 +503,18 @@ def csv_analyze(csv_path,run_name=None,setting_yaml=r"setting\plot_setting.yaml"
 
         matrix_analyze["auc"]=auc
         SQLiteController(f"log/analyze_record.db").analyze_write(run_name,matrix_analyze,group=group_name,log_folder=log_folder)
-        confusion_matrix(cutoff_cmd,csv_path.replace(".csv","_bc_cm.xlsx"))
+        confusion_matrix(cutoff_cmd,csv_path.replace(".csv","_cm.xlsx"))
     else:
         cmd=confusion_matrix_df(df) 
+        #dfの2列目と3列目の間にpredicted_labelを追加
+        df.insert(2,"predict_label","")
+
+        df["predict_label"]=df.apply(lambda x: (x[3:].idxmax())+"_p",axis=1)
+        if run_name!=None:
+            os.makedirs(f"{log_folder}/{run_name}",exist_ok=True)
+            #dfをcsvに書き込む
+            df.to_csv(f"{log_folder}/{run_name}/{run_name}_test_p.csv",index=False)
+        
         matrix_analyze=confusion_matrix_analyze(cmd)       
         SQLiteController(f"log/analyze_record.db").analyze_write(run_name,matrix_analyze,group=group_name,log_folder=log_folder)
         confusion_matrix(cmd,csv_path.replace(".csv","_cm.xlsx"))
