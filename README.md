@@ -40,12 +40,26 @@ timm
 
 ## model_aggreation.py
 単一のモデルについて評価を行います。  
-<br>
 
-<br>
 
 
 ## various_model.py
 available_model.pyに存在する複数のモデルについて学習を行います。　　
 
+
+# use_transform.py
+modelのトレーニングに使うtransformの設定が行なえます。
+
+# available_model_pytorch.py
+pytorchのプレトレーニングモデルを確認でき、available_model_pytorchに含まれるモデルがvarious_model.pyを実行したときに使用されるモデルで、含まれていないモデルは,model_aggreation.pyで実行することができません。ただし、available_model_pytorchにすべてのmodelが含まれていない可能性があり、任意で追加することが可能です。
+また、出力層の設定も行うことができます。
+
+# available_model_timm.py
+timmのプレトレーニングモデルを一部を確認でき、available_model_timmに含まれるモデルがvarious_model.pyを実行したときに使用されるモデルで、含まれていないモデルは,model_aggreation.pyで実行することができません。ただし、available_model_timmにすべてのモデルは含まれていません。
+全てのモデルを確認するためには以下のプログラムを実行します。
+```
+import timm
+model_list=timm.list_models(pretrained=True)
+print("\n".join(model_list))
+```
 
