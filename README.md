@@ -2,6 +2,10 @@
 分類モデルのトレーニングからテスト、混同行列、ROC(2分類のみ)の作成などの一連のプロセスを自動化する。
 
 
+##　連携システムについて
+本プログラムは以下のプログラムと連携します。
+[https://github.com/skgnt/model-learning-analysis](https://github.com/skgnt/model-learning-analysis)
+連携方法として、本プログラムのrootディレクトリにflask_app.pyとfrontendフォルダを配置して、flask_app.pyを実行することで、本プログラムの実行結果が分かりやすく表示されます。
 
 ## 共通事項
 * 必要ライブラリ
@@ -21,7 +25,35 @@ timm
 ✅データ自動分割機能
 
 * 使用可能モデルについて  
-  available_model.pyをご覧ください。  
+  available_model_pytorch.py,available_model_timm.pyをご覧ください。  
+
+
+* データセットについて
+データセットについて、ルートフォルダー(パラメータに設定するpath)直下にtrain,val,testを配置(ただし、valやtestを実行しない場合、そのフォルダーについては配置しなくてもよい)して、それらのフォルダ内に各クラスの名前のついたフォルダーを用意して、その中に該当のデータを保存する。このとき、クラスのフォルダ(下の見本でいうclass1)のなかは直下に画像ファイルが存在する必要はない(class1\xxx\xxx.jpgなど)。ただし、学習に必要の使用しないファイル(テキストファイルなど)は入れてはならい
+```
+root
+├─test
+│  ├─class1
+│  ├─.....
+│  └─classx
+├─val
+└─train
+    ├─class1
+    │   ├─0.png
+    │   ├─1.png
+    │   ├─...
+    │   └─x.png
+    ├─.....
+    └─classx
+      ├─0.png
+      ├─1.png
+      ├─...
+      └─x.png
+```
+
+* 自動分割機能
+
+
 
 解析内容(2分類)
 * Sensitivity  
@@ -37,6 +69,7 @@ timm
 * Accuracy
 <br>
 ※解析内容はlog直下のdbファイルに書き込まれるため、sqliteのviewrのアプリまたはvscode拡張機能を使用することを推奨します。
+
 
 ## model_aggreation.py
 単一のモデルについて評価を行います。  
