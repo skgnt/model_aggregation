@@ -2,9 +2,9 @@
 分類モデルのトレーニングからテスト、混同行列、ROC(2分類のみ)の作成などの一連のプロセスを自動化する。
 
 
-##　連携システムについて
-本プログラムは以下のプログラムと連携します。
-[https://github.com/skgnt/model-learning-analysis](https://github.com/skgnt/model-learning-analysis)
+## 連携システムについて  
+本プログラムは以下のプログラムと連携します。  
+[https://github.com/skgnt/model-learning-analysis](https://github.com/skgnt/model-learning-analysis)  
 連携方法として、本プログラムのrootディレクトリにflask_app.pyとfrontendフォルダを配置して、flask_app.pyを実行することで、本プログラムの実行結果が分かりやすく表示されます。
 
 ## 共通事項
