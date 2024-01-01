@@ -8,9 +8,9 @@ import parameter_record as pr
 import os
 from untils import train_model,test_model
 from available_model_pytorch import model_output_plus,available_model_pytorch
-from available_model_timm import FineTuning,available_model_timm
+from available_model_timm import FineTuning,available_model_timm,change_transform
 import timm
-from use_transform import use_transform,chage_transform
+from use_transform import use_transform
 
 
 def traing_sequence(yaml_path=None):
@@ -46,7 +46,7 @@ def traing_sequence(yaml_path=None):
 
         model = timm.create_model(model_name, pretrained=args.pretrained, num_classes=0,in_chans=args.channel)
         model = FineTuning(model=model, num_features=model.num_features, num_classes=args.num_classes)
-        transform = chage_transform(transform=transform, model_name=model_name)
+        transform = change_transform(transform=transform, model_name=model_name)
         model.device = args.device
 
     elif args.source == "pytorch":

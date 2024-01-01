@@ -426,12 +426,12 @@ def csv_analyze(csv_path,run_name=None,setting_yaml=r"setting\plot_setting.yaml"
         roc_df=pd.DataFrame(roc_data,columns=["CutOff","TPR","FPR","Balanced Accuracy"])
         #roc_dfをFPFの昇順にソート
         roc_df=roc_df.sort_values(by="FPR")
-        #cuttoffが
+        #cuttoff
         for i in range(roc_df.shape[0]-1):
 
            auc += (roc_df.iloc[i+1]["FPR"] - roc_df.iloc[i]["FPR"]) * roc_df.iloc[i+1]["TPR"]
         
-        print("auc",skm.auc(roc_df["FPR"],roc_df["TPR"]))
+        # print("auc",skm.auc(roc_df["FPR"],roc_df["TPR"]))
         with open(csv_path.replace(".csv","_roc.csv"),"w") as f:
             print("CutOff,TPR,FPR,Balanced Accuracy",file=f)
             for data in roc_data:

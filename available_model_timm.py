@@ -62,6 +62,6 @@ class FineTuning(nn.Module):
         x = self.add_layer(x)
         return x
 
-
-
+def change_transform(transform,model_name):
+    return transform
 
